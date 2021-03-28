@@ -2,13 +2,19 @@ const lodashChunk = require("lodash/chunk");
 const lodashGet = require("lodash/get");
 const lodashSet = require("lodash/set");
 const EleventyBaseError = require("../EleventyBaseError");
-const config = require("../Config");
 
+class PaginationConfigError extends EleventyBaseError {}
 class PaginationError extends EleventyBaseError {}
 
 class Pagination {
-  constructor(data) {
-    this.config = config.getConfig();
+  constructor(data, config) {
+    if (!config) {
+      throw new PaginationConfigError(
+        "Expected `config` argument to Pagination class."
+      );
+    }
+
+    this.config = config;
 
     this.setData(data);
   }
@@ -63,7 +69,7 @@ class Pagination {
     this.alias = data.pagination.alias;
 
     this.target = this._resolveItems();
-    this.items = this.getPagedItems();
+    this.items = this.pagedItems;
   }
 
   setTemplate(tmpl) {
@@ -134,8 +140,7 @@ class Pagination {
     return result;
   }
 
-  getPagedItems() {
-    // TODO switch to a getter
+  get pagedItems() {
     if (!this.data) {
       throw new Error("Missing `setData` call for Pagination object.");
     }
@@ -239,8 +244,12 @@ class Pagination {
       cloned.setPaginationData(override);
 
       // TO DO subdirectory to links if the site doesn’t live at /
-      links.push("/" + (await cloned.getOutputLink()));
-      hrefs.push(await cloned.getOutputHref());
+      let [outputLink, outputHref] = await Promise.all([
+        cloned.getOutputLink(),
+        cloned.getOutputHref(),
+      ]);
+      links.push("/" + outputLink);
+      hrefs.push(outputHref);
     }
 
     // we loop twice to pass in the appropriate prev/next links (already full generated now)

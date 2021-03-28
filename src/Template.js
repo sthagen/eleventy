@@ -14,15 +14,16 @@ const TemplateFileSlug = require("./TemplateFileSlug");
 const ComputedData = require("./ComputedData");
 const Pagination = require("./Plugins/Pagination");
 const TemplateContentPrematureUseError = require("./Errors/TemplateContentPrematureUseError");
+const ConsoleLogger = require("./Util/ConsoleLogger");
 
 const debug = require("debug")("Eleventy:Template");
 const debugDev = require("debug")("Dev:Eleventy:Template");
 const bench = require("./BenchmarkManager").get("Aggregate");
 
 class Template extends TemplateContent {
-  constructor(path, inputDir, outputDir, templateData, extensionMap) {
+  constructor(path, inputDir, outputDir, templateData, extensionMap, config) {
     debugDev("new Template(%o)", path);
-    super(path, inputDir);
+    super(path, inputDir, config);
 
     this.parsed = parsePath(path);
 
@@ -60,8 +61,22 @@ class Template extends TemplateContent {
     this.filePathStem = this.fileSlug.getFullPathWithoutExtension();
   }
 
+  get logger() {
+    if (!this._logger) {
+      this._logger = new ConsoleLogger();
+      this._logger.isVerbose = this.isVerbose;
+    }
+    return this._logger;
+  }
+
+  /* Setter for Logger */
+  set logger(logger) {
+    this._logger = logger;
+  }
+
   setIsVerbose(isVerbose) {
     this.isVerbose = isVerbose;
+    this.logger.isVerbose = isVerbose;
   }
 
   setDryRun(isDryRun) {
@@ -194,19 +209,19 @@ class Template extends TemplateContent {
       let str = await super.render(data, templateData, true);
       return str;
     } else if (Array.isArray(data)) {
-      let arr = [];
-      for (let j = 0, k = data.length; j < k; j++) {
-        arr.push(await this.mapDataAsRenderedTemplates(data[j], templateData));
-      }
-      return arr;
+      return Promise.all(
+        data.map((item) => this.mapDataAsRenderedTemplates(item, templateData))
+      );
     } else if (lodashIsObject(data)) {
       let obj = {};
-      for (let value in data) {
-        obj[value] = await this.mapDataAsRenderedTemplates(
-          data[value],
-          templateData
-        );
-      }
+      await Promise.all(
+        Object.keys(data).map(async (value) => {
+          obj[value] = await this.mapDataAsRenderedTemplates(
+            data[value],
+            templateData
+          );
+        })
+      );
       return obj;
     }
 
@@ -354,19 +369,43 @@ class Template extends TemplateContent {
   }
 
   async runLinters(str, inputPath, outputPath) {
-    this.linters.forEach(function (linter) {
+    for (let linter of this.linters) {
       // these can be asynchronous but no guarantee of order when they run
-      linter.call(this, str, inputPath, outputPath);
+      linter.call(
+        {
+          inputPath,
+          outputPath,
+        },
+        str,
+        inputPath,
+        outputPath
+      );
+    }
+  }
+
+  addTransform(name, callback) {
+    this.transforms.push({
+      name,
+      callback,
     });
   }
 
-  addTransform(callback) {
-    this.transforms.push(callback);
-  }
-
-  async runTransforms(str, outputPath, inputPath) {
+  // Warning: this argument list is the reverse of linters (inputPath then outputPath)
+  async runTransforms(str, inputPath, outputPath) {
     for (let transform of this.transforms) {
-      str = await transform.call(this, str, outputPath, inputPath);
+      str = await transform.callback.call(
+        {
+          inputPath,
+          outputPath,
+        },
+        str,
+        outputPath
+      );
+      if (!str) {
+        this.logger.warn(
+          `Warning: Transform \`${transform.name}\` returned empty when writing ${outputPath} from ${inputPath}.`
+        );
+      }
     }
 
     return str;
@@ -463,86 +502,90 @@ class Template extends TemplateContent {
   }
 
   async getTemplates(data) {
-    // TODO cache this
-    let results = [];
-
     if (!Pagination.hasPagination(data)) {
       await this.addComputedData(data);
 
-      results.push({
-        template: this,
-        inputPath: this.inputPath,
-        fileSlug: this.fileSlugStr,
-        filePathStem: this.filePathStem,
-        data: data,
-        date: data.page.date,
-        outputPath: data.page.outputPath,
-        url: data.page.url,
-        set templateContent(content) {
-          this._templateContent = content;
-        },
-        get templateContent() {
-          if (this._templateContent === undefined) {
-            // should at least warn here
-            throw new TemplateContentPrematureUseError(
-              `Tried to use templateContent too early (${this.inputPath})`
-            );
-          }
-          return this._templateContent;
-        },
-      });
-    } else {
-      // needs collections for pagination items
-      // but individual pagination entries won’t be part of a collection
-      this.paging = new Pagination(data);
-      this.paging.setTemplate(this);
-      let pageTemplates = await this.paging.getPageTemplates();
-      let pageNumber = 0;
-      for (let page of pageTemplates) {
-        let pageData = Object.assign({}, await page.getData());
-
-        await page.addComputedData(pageData);
-
-        // Issue #115
-        if (data.collections) {
-          pageData.collections = data.collections;
-        }
-
-        results.push({
-          template: page,
+      return [
+        {
+          template: this,
           inputPath: this.inputPath,
           fileSlug: this.fileSlugStr,
           filePathStem: this.filePathStem,
-          data: pageData,
-          date: pageData.page.date,
-          pageNumber: pageNumber++,
-          outputPath: pageData.page.outputPath,
-          url: pageData.page.url,
+          data: data,
+          date: data.page.date,
+          outputPath: data.page.outputPath,
+          url: data.page.url,
           set templateContent(content) {
             this._templateContent = content;
           },
           get templateContent() {
             if (this._templateContent === undefined) {
+              // should at least warn here
               throw new TemplateContentPrematureUseError(
-                `Tried to use templateContent too early (${this.inputPath} page ${this.pageNumber})`
+                `Tried to use templateContent too early (${this.inputPath})`
               );
             }
             return this._templateContent;
           },
-        });
-      }
-    }
+        },
+      ];
+    } else {
+      // needs collections for pagination items
+      // but individual pagination entries won’t be part of a collection
+      this.paging = new Pagination(data, this.config);
+      this.paging.setTemplate(this);
+      let pageTemplates = await this.paging.getPageTemplates();
 
-    return results;
+      return await Promise.all(
+        pageTemplates.map(async (page, pageNumber) => {
+          let pageData = Object.assign({}, await page.getData());
+
+          await page.addComputedData(pageData);
+
+          // Issue #115
+          if (data.collections) {
+            pageData.collections = data.collections;
+          }
+
+          return {
+            template: page,
+            inputPath: this.inputPath,
+            fileSlug: this.fileSlugStr,
+            filePathStem: this.filePathStem,
+            data: pageData,
+            date: pageData.page.date,
+            pageNumber: pageNumber,
+            outputPath: pageData.page.outputPath,
+            url: pageData.page.url,
+            set templateContent(content) {
+              this._templateContent = content;
+            },
+            get templateContent() {
+              if (this._templateContent === undefined) {
+                throw new TemplateContentPrematureUseError(
+                  `Tried to use templateContent too early (${this.inputPath} page ${this.pageNumber})`
+                );
+              }
+              return this._templateContent;
+            },
+          };
+        })
+      );
+    }
   }
 
   async getRenderedTemplates(data) {
     let pages = await this.getTemplates(data);
-    for (let page of pages) {
-      let content = await page.template._getContent(page.outputPath, page.data);
+    await Promise.all(
+      pages.map(async (page) => {
+        let content = await page.template._getContent(
+          page.outputPath,
+          page.data
+        );
 
-      page.templateContent = content;
-    }
+        page.templateContent = content;
+      })
+    );
     return pages;
   }
 
@@ -578,11 +621,12 @@ class Template extends TemplateContent {
       };
     }
 
-    if (this.isVerbose) {
-      console.log(`${lang.start} ${outputPath} from ${this.inputPath}.`);
-    } else {
-      debug(`${lang.start} %o from %o.`, outputPath, this.inputPath);
-    }
+    let engineList = this.templateRender.getReadableEnginesListDifferingFromFileExtension();
+    this.logger.log(
+      `${lang.start} ${outputPath} from ${this.inputPath}${
+        engineList ? ` (${engineList})` : ""
+      }`
+    );
 
     if (!shouldWriteFile) {
       this.skippedCount++;
@@ -609,30 +653,38 @@ class Template extends TemplateContent {
     }
 
     await this.runLinters(content, page.inputPath, page.outputPath);
-    content = await this.runTransforms(content, page.outputPath); // pass in page.inputPath?
+    content = await this.runTransforms(
+      content,
+      page.inputPath,
+      page.outputPath
+    );
     return content;
   }
 
-  async writeMapEntry(mapEntry) {
-    let promises = [];
-    for (let page of mapEntry._pages) {
-      let content = await this.renderPageEntry(mapEntry, page);
-      let promise = this._write(page.outputPath, content);
-      promises.push(promise);
-    }
+  async generateMapEntry(mapEntry, to) {
+    return Promise.all(
+      mapEntry._pages.map(async (page) => {
+        let content = await this.renderPageEntry(mapEntry, page);
+        if (to === "json" || to === "ndjson") {
+          let obj = {
+            url: page.url,
+            inputPath: page.inputPath,
+            content: content,
+          };
 
-    return Promise.all(promises);
-  }
+          if (to === "ndjson") {
+            let jsonString = JSON.stringify(obj);
+            this.logger.toStream(jsonString + "\n");
+            return;
+          }
 
-  // TODO is this still used by anything but tests?
-  async write(outputPath, data) {
-    let templates = await this.getRenderedTemplates(data);
-    let promises = [];
-    for (let tmpl of templates) {
-      promises.push(this._write(tmpl.outputPath, tmpl.templateContent));
-    }
+          // json
+          return obj;
+        }
 
-    return Promise.all(promises);
+        return this._write(page.outputPath, content);
+      })
+    );
   }
 
   // TODO this but better
@@ -642,12 +694,13 @@ class Template extends TemplateContent {
       this.inputDir,
       this.outputDir,
       this.templateData,
-      this.extensionMap
+      this.extensionMap,
+      this.eleventyConfig
     );
-    tmpl.config = this.config;
+    tmpl.logger = this.logger;
 
     for (let transform of this.transforms) {
-      tmpl.addTransform(transform);
+      tmpl.addTransform(transform.name, transform.callback);
     }
     for (let linter of this.linters) {
       tmpl.addLinter(linter);
@@ -759,19 +812,22 @@ class Template extends TemplateContent {
 
   async _testCompleteRender() {
     let entries = await this.getTemplateMapEntries();
-    let contents = [];
 
-    for (let entry of entries) {
-      entry._pages = await entry.template.getTemplates(entry.data);
+    let nestedContent = await Promise.all(
+      entries.map(async (entry) => {
+        entry._pages = await entry.template.getTemplates(entry.data);
+        return Promise.all(
+          entry._pages.map(async (page) => {
+            page.templateContent = await entry.template.getTemplateMapContent(
+              page
+            );
+            return this.renderPageEntry(entry, page);
+          })
+        );
+      })
+    );
 
-      let page;
-      for (page of entry._pages) {
-        page.templateContent = await entry.template.getTemplateMapContent(page);
-      }
-      for (page of entry._pages) {
-        contents.push(await this.renderPageEntry(entry, page));
-      }
-    }
+    let contents = [].concat(...nestedContent);
     return contents;
   }
 }

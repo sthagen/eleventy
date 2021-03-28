@@ -11,7 +11,6 @@ const TemplateGlob = require("./TemplateGlob");
 const EleventyExtensionMap = require("./EleventyExtensionMap");
 const EleventyBaseError = require("./EleventyBaseError");
 
-const config = require("./Config");
 const debugWarn = require("debug")("Eleventy:Warnings");
 const debug = require("debug")("Eleventy:TemplateData");
 const debugDev = require("debug")("Dev:Eleventy:TemplateData");
@@ -40,11 +39,17 @@ class FSExistsCache {
   }
 }
 
+class TemplateDataConfigError extends EleventyBaseError {}
 class TemplateDataParseError extends EleventyBaseError {}
 
 class TemplateData {
-  constructor(inputDir) {
-    this.config = config.getConfig();
+  constructor(inputDir, eleventyConfig) {
+    if (!eleventyConfig) {
+      throw new TemplateDataConfigError("Missing `config`.");
+    }
+    this.eleventyConfig = eleventyConfig;
+    this.config = this.eleventyConfig.getConfig();
+
     this.dataTemplateEngine = this.config.dataTemplateEngine;
 
     this.inputDirNeedsCheck = false;
@@ -60,8 +65,7 @@ class TemplateData {
 
   get extensionMap() {
     if (!this._extensionMap) {
-      this._extensionMap = new EleventyExtensionMap();
-      this._extensionMap.config = this.config;
+      this._extensionMap = new EleventyExtensionMap([], this.config);
     }
     return this._extensionMap;
   }
@@ -154,12 +158,12 @@ class TemplateData {
     let paths = [
       `${dir}/**/*.json`, // covers .11tydata.json too
       `${dir}/**/*${this.config.jsDataFileSuffix}.cjs`,
-      `${dir}/**/*${this.config.jsDataFileSuffix}.js`
+      `${dir}/**/*${this.config.jsDataFileSuffix}.js`,
     ];
 
     if (this.hasUserDataExtensions()) {
       let userPaths = this.getUserDataExtensions().map(
-        extension => `${dir}/**/*.${extension}` // covers .11tydata.{extension} too
+        (extension) => `${dir}/**/*.${extension}` // covers .11tydata.{extension} too
       );
       paths = userPaths.concat(paths);
     }
@@ -170,7 +174,7 @@ class TemplateData {
   async getTemplateJavaScriptDataFileGlob() {
     let dir = await this.getInputDir();
     return TemplatePath.addLeadingDotSlashArray([
-      `${dir}/**/*${this.config.jsDataFileSuffix}.js`
+      `${dir}/**/*${this.config.jsDataFileSuffix}.js`,
     ]);
   }
 
@@ -206,7 +210,7 @@ class TemplateData {
     fsBench.before();
     let paths = fastglob.sync(await this.getGlobalDataGlob(), {
       caseSensitiveMatch: false,
-      dot: true
+      dot: true,
     });
     fsBench.after();
 
@@ -276,13 +280,14 @@ class TemplateData {
     let globalData = {};
     if (this.config.globalData) {
       let keys = Object.keys(this.config.globalData);
-      for (let j = 0; j < keys.length; j++) {
-        let returnValue = this.config.globalData[keys[j]];
+      for (let key of keys) {
+        let returnValue = this.config.globalData[key];
 
         if (typeof returnValue === "function") {
           returnValue = await returnValue();
         }
-        globalData[keys[j]] = returnValue;
+
+        globalData[key] = returnValue;
       }
     }
     return globalData;
@@ -291,7 +296,7 @@ class TemplateData {
   async getData() {
     let rawImports = this.getRawImports();
 
-    let initialGlobalData = await this.getInitialGlobalData();
+    this.configApiGlobalData = await this.getInitialGlobalData();
 
     if (!this.globalData) {
       let globalJson = await this.getAllGlobalData();
@@ -299,7 +304,7 @@ class TemplateData {
       // OK: Shallow merge when combining rawImports (pkg) with global data files
       this.globalData = Object.assign(
         {},
-        initialGlobalData,
+        this.configApiGlobalData,
         globalJson,
         rawImports
       );
@@ -316,7 +321,7 @@ class TemplateData {
     }
 
     // Filter out files we know don't exist to avoid overhead for checking
-    localDataPaths = localDataPaths.filter(path => {
+    localDataPaths = localDataPaths.filter((path) => {
       return this._fsExistsCache.exists(path);
     });
 
@@ -397,7 +402,7 @@ class TemplateData {
         );
       }
     } else {
-      let tr = new TemplateRender(engineName, this.inputDir);
+      let tr = new TemplateRender(engineName, this.inputDir, this.config);
       tr.extensionMap = this.extensionMap;
 
       let fn = await tr.getCompiledTemplate(rawInput);
@@ -415,11 +420,11 @@ class TemplateData {
     }
   }
 
+  // ignoreProcessing = false for global data files
+  // ignoreProcessing = true for local data files
   async getDataValue(path, rawImports, ignoreProcessing) {
     let extension = TemplatePath.getExtension(path);
 
-    // ignoreProcessing = false for global data files
-    // ignoreProcessing = true for local data files
     if (
       extension === "js" ||
       extension === "cjs" ||
@@ -443,7 +448,7 @@ class TemplateData {
 
       let returnValue = require(localPath);
       if (typeof returnValue === "function") {
-        returnValue = await returnValue();
+        returnValue = await returnValue(this.configApiGlobalData || {});
       }
 
       dataBench.after();

@@ -1,8 +1,17 @@
 const TemplateEngineManager = require("./TemplateEngineManager");
+const TemplateConfig = require("./TemplateConfig");
 const TemplatePath = require("./TemplatePath");
+const EleventyBaseError = require("./EleventyBaseError");
+
+class EleventyExtensionMapConfigError extends EleventyBaseError {}
 
 class EleventyExtensionMap {
-  constructor(formatKeys) {
+  constructor(formatKeys, config) {
+    if (!config) {
+      throw new EleventyExtensionMapConfigError("Missing `config` argument.");
+    }
+    this._config = config;
+
     this.formatKeys = formatKeys;
 
     this.setFormats(formatKeys);
@@ -22,17 +31,20 @@ class EleventyExtensionMap {
     );
   }
 
-  get config() {
-    return this.configOverride || require("./Config").getConfig();
-  }
   set config(cfg) {
-    this.configOverride = cfg;
+    this._config = cfg;
+  }
+
+  get config() {
+    if (this._config instanceof TemplateConfig) {
+      return this._config.getConfig();
+    }
+    return this._config;
   }
 
   get engineManager() {
     if (!this._engineManager) {
-      this._engineManager = new TemplateEngineManager();
-      this._engineManager.config = this.config;
+      this._engineManager = new TemplateEngineManager(this.config);
     }
 
     return this._engineManager;
@@ -56,6 +68,15 @@ class EleventyExtensionMap {
     return files;
   }
 
+  isFullTemplateFilename(path) {
+    for (let extension of this.validTemplateLanguageKeys) {
+      if (path.endsWith(`.${extension}`)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   getPassthroughCopyGlobs(inputDir) {
     return this._getGlobs(this.passthroughCopyKeys, inputDir);
   }
@@ -65,11 +86,7 @@ class EleventyExtensionMap {
   }
 
   getGlobs(inputDir) {
-    if (this.config.passthroughFileCopy) {
-      return this._getGlobs(this.unfilteredFormatKeys, inputDir);
-    }
-
-    return this._getGlobs(this.validTemplateLanguageKeys, inputDir);
+    return this._getGlobs(this.unfilteredFormatKeys, inputDir);
   }
 
   _getGlobs(formatKeys, inputDir) {
@@ -160,6 +177,10 @@ class EleventyExtensionMap {
     }
 
     return this._extensionToKeyMap;
+  }
+
+  getReadableFileExtensions() {
+    return Object.keys(this.extensionToKeyMap).join(" ");
   }
 }
 

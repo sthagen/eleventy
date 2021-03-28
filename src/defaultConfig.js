@@ -3,8 +3,13 @@ const slugFilter = require("./Filters/Slug");
 const getCollectionItem = require("./Filters/GetCollectionItem");
 
 module.exports = function (config) {
+  let eleventyConfig = this;
   config.addFilter("slug", slugFilter);
-  config.addFilter("url", urlFilter);
+  config.addFilter("url", function (url, pathPrefixOverride) {
+    let pathPrefix =
+      pathPrefixOverride || eleventyConfig.getConfig().pathPrefix;
+    return urlFilter.call(this, url, pathPrefix);
+  });
   config.addFilter("log", console.log);
 
   config.addFilter("getCollectionItem", (collection, page) =>
@@ -34,8 +39,7 @@ module.exports = function (config) {
     pathPrefix: "/",
     markdownTemplateEngine: "liquid",
     htmlTemplateEngine: "liquid",
-    dataTemplateEngine: "liquid",
-    passthroughFileCopy: true,
+    dataTemplateEngine: false, // change in 1.0
     htmlOutputSuffix: "-o",
     jsDataFileSuffix: ".11tydata",
     keys: {
@@ -52,8 +56,6 @@ module.exports = function (config) {
       data: "_data",
       output: "_site",
     },
-    // deprecated, use config.addTransform
-    filters: {},
     // deprecated, use config.addHandlebarsHelper
     handlebarsHelpers: {},
     // deprecated, use config.addNunjucksFilter
