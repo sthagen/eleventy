@@ -1,5 +1,5 @@
 const test = require("ava");
-const fs = require("fs-extra");
+const fs = require("fs");
 const rimraf = require("rimraf");
 const fastglob = require("fast-glob");
 const parsePath = require("parse-filepath");
@@ -425,6 +425,8 @@ test("Glob Watcher Files with Passthroughs", (t) => {
 });
 
 test("Pagination and TemplateContent", async (t) => {
+  rimraf.sync("./test/stubs/pagination-templatecontent/_site/");
+
   let eleventyConfig = new TemplateConfig();
   let tw = new TemplateWriter(
     "./test/stubs/pagination-templatecontent",
@@ -484,7 +486,7 @@ test("Custom collection returns a string", async (t) => {
     eleventyConfig
   );
 
-  tw.userConfig.addCollection("returnATestString", function (collection) {
+  tw.userConfig.addCollection("returnATestString", function () {
     return "test";
   });
 
@@ -698,6 +700,8 @@ test.skip("JavaScript with alias", async (t) => {
 });
 
 test("Passthrough file output", async (t) => {
+  rimraf.sync("./test/stubs/template-passthrough/_site/");
+
   let eleventyConfig = new TemplateConfig();
   eleventyConfig.userConfig.passthroughCopies = {
     "./test/stubs/template-passthrough/static": true,
@@ -705,6 +709,7 @@ test("Passthrough file output", async (t) => {
     "./test/stubs/template-passthrough/static/**/*": "./all/",
     "./test/stubs/template-passthrough/static/**/*.js": "./js/",
   };
+
   let tw = new TemplateWriter(
     "./test/stubs/template-passthrough/",
     "./test/stubs/template-passthrough/_site",
@@ -712,8 +717,6 @@ test("Passthrough file output", async (t) => {
     null,
     eleventyConfig
   );
-
-  const mgr = tw.eleventyFiles.getPassthroughManager();
 
   await tw.write();
 
@@ -730,14 +733,8 @@ test("Passthrough file output", async (t) => {
     "./test/stubs/template-passthrough/_site/test.js",
   ];
 
-  let results = await Promise.all(
-    output.map(function (path) {
-      return fs.exists(path);
-    })
-  );
-
-  for (let result of results) {
-    t.true(result);
+  for (let path of output) {
+    t.true(fs.existsSync(path));
   }
 
   rimraf.sync("./test/stubs/template-passthrough/_site/");

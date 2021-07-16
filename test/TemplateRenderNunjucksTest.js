@@ -797,3 +797,51 @@ test("Issue 611: Run a function", async (t) => {
     "alkdsjfksljaZach"
   );
 });
+
+test("Nunjucks bypass compilation", async (t) => {
+  let tr = getNewTemplateRender("njk");
+
+  t.is(tr.engine.needsCompilation("<p>{{ me }}</p>"), true);
+  t.is(tr.engine.needsCompilation("<p>{% tag %}{% endtag %}</p>"), true);
+  t.is(tr.engine.needsCompilation("<p>test</p>"), false);
+});
+
+test("Nunjucks Parse for Symbols", async (t) => {
+  let tr = getNewTemplateRender("njk");
+  let engine = tr.engine;
+
+  t.deepEqual(engine.parseForSymbols("<p>{{ name }}</p>"), ["name"]);
+  t.deepEqual(engine.parseForSymbols("<p>{{ eleventy.deep.nested }}</p>"), [
+    "eleventy.deep.nested",
+  ]);
+  t.deepEqual(engine.parseForSymbols("<p>{{ a }} {{ b }}</p>"), ["a", "b"]);
+  t.deepEqual(
+    engine.parseForSymbols("<p>{% if true %}{{ c }}{% endif %}</p>"),
+    ["c"]
+  );
+  t.deepEqual(
+    engine.parseForSymbols("<p>{% if false %}{{ c }}{% endif %}</p>"),
+    ["c"]
+  );
+  t.deepEqual(engine.parseForSymbols("{{ collections.all[0] }}>"), [
+    // Note that the Liquid parser returns collections.all[0]
+    "collections.all",
+  ]);
+  t.deepEqual(engine.parseForSymbols("{{ collections.mine }}>"), [
+    "collections.mine",
+  ]);
+
+  t.deepEqual(engine.parseForSymbols("{{ collections.mine | test }}>"), [
+    // TODO not ideal to have `test` in here?
+    "test",
+    "collections.mine",
+  ]);
+});
+
+test("Nunjucks Parse for Symbols with custom block", async (t) => {
+  let tr = getNewTemplateRender("njk");
+  let engine = tr.engine;
+  engine.config.nunjucksShortcodes.test = function () {};
+
+  t.deepEqual(engine.parseForSymbols("<p>{{ name }} {% test %}</p>"), ["name"]);
+});

@@ -74,6 +74,14 @@ class TemplateData {
     this._extensionMap = map;
   }
 
+  get environmentVariables() {
+    return this._env;
+  }
+
+  set environmentVariables(env) {
+    this._env = env;
+  }
+
   /* Used by tests */
   _setConfig(config) {
     this.config = config;
@@ -249,6 +257,8 @@ class TemplateData {
       await this.getGlobalDataFiles()
     );
 
+    this.config.events.emit("eleventy.globalDataFiles", files);
+
     let dataFileConflicts = {};
 
     for (let j = 0, k = files.length; j < k; j++) {
@@ -287,8 +297,17 @@ class TemplateData {
           returnValue = await returnValue();
         }
 
-        globalData[key] = returnValue;
+        lodashset(globalData, key, returnValue);
       }
+    }
+    if (this.environmentVariables) {
+      if (!("eleventy" in globalData)) {
+        globalData.eleventy = {};
+      }
+      if (!("env" in globalData.eleventy)) {
+        globalData.eleventy.env = {};
+      }
+      Object.assign(globalData.eleventy.env, this.environmentVariables);
     }
     return globalData;
   }
@@ -300,14 +319,10 @@ class TemplateData {
 
     if (!this.globalData) {
       let globalJson = await this.getAllGlobalData();
+      let mergedGlobalData = merge(globalJson, this.configApiGlobalData);
 
       // OK: Shallow merge when combining rawImports (pkg) with global data files
-      this.globalData = Object.assign(
-        {},
-        this.configApiGlobalData,
-        globalJson,
-        rawImports
-      );
+      this.globalData = Object.assign({}, mergedGlobalData, rawImports);
     }
 
     return this.globalData;
@@ -447,6 +462,9 @@ class TemplateData {
       deleteRequireCache(localPath);
 
       let returnValue = require(localPath);
+      // TODO special exception for Global data `permalink.js`
+      // module.exports = (data) => `${data.page.filePathStem}/`; // Does not work
+      // module.exports = () => ((data) => `${data.page.filePathStem}/`); // Works
       if (typeof returnValue === "function") {
         returnValue = await returnValue(this.configApiGlobalData || {});
       }
@@ -568,6 +586,9 @@ class TemplateData {
       } else if (data.tags === null) {
         data.tags = [];
       }
+
+      // Deduplicate tags
+      data.tags = [...new Set(data.tags)];
     }
 
     return data;

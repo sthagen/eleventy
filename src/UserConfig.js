@@ -3,6 +3,7 @@ const semver = require("semver");
 const { DateTime } = require("luxon");
 const EventEmitter = require("./Util/AsyncEventEmitter");
 const EleventyBaseError = require("./EleventyBaseError");
+const merge = require("./Util/Merge");
 const bench = require("./BenchmarkManager").get("Configuration");
 const aggregateBench = require("./BenchmarkManager").get("Aggregate");
 const debug = require("debug")("Eleventy:UserConfig");
@@ -20,6 +21,7 @@ class UserConfig {
     debug("Resetting EleventyConfig to initial values.");
     this.events = new EventEmitter();
     this.collections = {};
+    this.precompiledCollections = {};
     this.templateFormats = undefined;
 
     this.liquidOptions = {};
@@ -51,8 +53,12 @@ class UserConfig {
     this.activeNamespace = "";
     this.DateTime = DateTime;
     this.dynamicPermalinks = true;
+
     this.useGitIgnore = true;
-    this.dataDeepMerge = false;
+    this.ignores = new Set();
+    this.ignores.add("node_modules/**");
+
+    this.dataDeepMerge = true;
     this.extensionMap = new Set();
     this.watchJavaScriptDependencies = true;
     this.additionalWatchTargets = [];
@@ -610,7 +616,12 @@ class UserConfig {
   }
 
   setDataDeepMerge(deepMerge) {
+    this._dataDeepMergeModified = true;
     this.dataDeepMerge = !!deepMerge;
+  }
+
+  isDataDeepMergeModified() {
+    return this._dataDeepMergeModified;
   }
 
   addWatchTarget(additionalWatchTargets) {
@@ -621,8 +632,12 @@ class UserConfig {
     this.watchJavaScriptDependencies = !!watchEnabled;
   }
 
-  setBrowserSyncConfig(options = {}) {
-    this.browserSyncConfig = options;
+  setBrowserSyncConfig(options = {}, mergeOptions = true) {
+    if (mergeOptions) {
+      this.browserSyncConfig = merge(this.browserSyncConfig, options);
+    } else {
+      this.browserSyncConfig = options;
+    }
   }
 
   setChokidarConfig(options = {}) {
@@ -665,6 +680,10 @@ class UserConfig {
     this.useTemplateCache = !!bypass;
   }
 
+  setPrecompiledCollections(collections) {
+    this.precompiledCollections = collections;
+  }
+
   getMergingConfigObject() {
     return {
       templateFormats: this.templateFormats,
@@ -698,6 +717,7 @@ class UserConfig {
       libraryOverrides: this.libraryOverrides,
       dynamicPermalinks: this.dynamicPermalinks,
       useGitIgnore: this.useGitIgnore,
+      ignores: this.ignores,
       dataDeepMerge: this.dataDeepMerge,
       watchJavaScriptDependencies: this.watchJavaScriptDependencies,
       additionalWatchTargets: this.additionalWatchTargets,
@@ -710,6 +730,7 @@ class UserConfig {
       quietMode: this.quietMode,
       events: this.events,
       useTemplateCache: this.useTemplateCache,
+      precompiledCollections: this.precompiledCollections,
     };
   }
 }

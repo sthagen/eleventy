@@ -129,6 +129,19 @@ test("absolutePath", (t) => {
     TemplatePath.absolutePath(".eleventy.js").split("/").pop(),
     ".eleventy.js"
   );
+  t.is(TemplatePath.absolutePath("/tmp/.eleventy.js"), "/tmp/.eleventy.js");
+  t.is(
+    TemplatePath.absolutePath("/var/task/", ".eleventy.js"),
+    "/var/task/.eleventy.js"
+  );
+
+  t.throws(() => {
+    TemplatePath.absolutePath("/var/task/", "/var/task/.eleventy.js");
+  });
+
+  t.throws(() => {
+    TemplatePath.absolutePath("file1.js", "test/file2.js", "/tmp/.eleventy.js");
+  });
 });
 
 test("absolutePath and relativePath", (t) => {

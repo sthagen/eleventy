@@ -429,15 +429,14 @@ test("TemplateData.cleanupData", (t) => {
 });
 
 test("Parent directory for data (Issue #337)", async (t) => {
-  let eleventyConfig = new TemplateConfig();
-  let dataObj = new TemplateData("./test/stubs-337/src/", eleventyConfig);
-  dataObj._setConfig({
+  let eleventyConfig = new TemplateConfig({
     dataTemplateEngine: false,
     dir: {
       input: "./test/stubs-337/src/",
       data: "../data/",
     },
   });
+  let dataObj = new TemplateData("./test/stubs-337/src/", eleventyConfig);
   dataObj.setInputDir("./test/stubs-337/src/");
 
   let data = await dataObj.getData();
@@ -470,4 +469,20 @@ test("addGlobalData values", async (t) => {
   t.is(data.myFunction, "fn-value");
   t.is(data.myPromise, "promise-value");
   t.is(data.myAsync, "promise-value");
+});
+
+test("addGlobalData complex key", async (t) => {
+  let eleventyConfig = new TemplateConfig();
+  eleventyConfig.userConfig.addGlobalData("deep.nested.one", () => "first");
+  eleventyConfig.userConfig.addGlobalData("deep.nested.two", () => "second");
+
+  let dataObj = new TemplateData(
+    "./test/stubs-global-data-config-api-nested/",
+    eleventyConfig
+  );
+  let data = await dataObj.getData();
+
+  t.is(data.deep.existing, true);
+  t.is(data.deep.nested.one, "first");
+  t.is(data.deep.nested.two, "second");
 });

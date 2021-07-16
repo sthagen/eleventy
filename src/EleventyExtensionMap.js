@@ -10,6 +10,9 @@ class EleventyExtensionMap {
     if (!config) {
       throw new EleventyExtensionMapConfigError("Missing `config` argument.");
     }
+    if (config instanceof TemplateConfig) {
+      this.eleventyConfig = config;
+    }
     this._config = config;
 
     this.formatKeys = formatKeys;
@@ -50,6 +53,10 @@ class EleventyExtensionMap {
     return this._engineManager;
   }
 
+  reset() {
+    this.engineManager.reset();
+  }
+
   /* Used for layout path resolution */
   getFileList(path, dir) {
     if (!path) {
@@ -68,7 +75,10 @@ class EleventyExtensionMap {
     return files;
   }
 
-  isFullTemplateFilename(path) {
+  // Warning: this would false positive on an include, but is only used
+  // on paths found from the file system glob search.
+  // TODO: Method name might just need to be renamed to something more accurate.
+  isFullTemplateFilePath(path) {
     for (let extension of this.validTemplateLanguageKeys) {
       if (path.endsWith(`.${extension}`)) {
         return true;
@@ -92,17 +102,15 @@ class EleventyExtensionMap {
   _getGlobs(formatKeys, inputDir) {
     let dir = TemplatePath.convertToRecursiveGlobSync(inputDir);
     let globs = [];
-    formatKeys.forEach(
-      function (key) {
-        if (this.hasExtension(key)) {
-          this.getExtensionsFromKey(key).forEach(function (extension) {
-            globs.push(dir + "/*." + extension);
-          });
-        } else {
-          globs.push(dir + "/*." + key);
+    for (let key of formatKeys) {
+      if (this.hasExtension(key)) {
+        for (let extension of this.getExtensionsFromKey(key)) {
+          globs.push(dir + "/*." + extension);
         }
-      }.bind(this)
-    );
+      } else {
+        globs.push(dir + "/*." + key);
+      }
+    }
     return globs;
   }
 
@@ -123,6 +131,18 @@ class EleventyExtensionMap {
       }
     }
     return extensions;
+  }
+
+  getExtensionEntriesFromKey(key) {
+    let entries = [];
+    if ("extensionMap" in this.config) {
+      for (let entry of this.config.extensionMap) {
+        if (entry.key === key) {
+          entries.push(entry);
+        }
+      }
+    }
+    return entries;
   }
 
   hasEngine(pathOrKey) {

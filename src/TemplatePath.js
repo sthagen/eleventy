@@ -133,6 +133,25 @@ TemplatePath.normalizeUrlPath = function (...urlPaths) {
  * @returns {String} the absolute path described by the given path segments.
  */
 TemplatePath.absolutePath = function (...paths) {
+  let i = 0;
+  // check all the paths before we short circuit from the first index
+  for (let path of paths) {
+    if (path.startsWith("/") && i > 0) {
+      throw new Error(
+        `Only the first parameter to Template.absolutePath can be an absolute path. Received: ${path} from ${paths}`
+      );
+    }
+    i++;
+  }
+
+  let j = 0;
+  for (let path of paths) {
+    if (j === 0 && path.startsWith("/")) {
+      return TemplatePath.join(...paths);
+    }
+    j++;
+  }
+
   return TemplatePath.join(TemplatePath.getWorkingDir(), ...paths);
 };
 

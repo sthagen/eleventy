@@ -34,10 +34,10 @@ class EleventyConfigError extends EleventyBaseError {}
  * Config for a template.
  *
  * @param {{}} customRootConfig - tbd.
- * @param {String} localProjectConfigPath - Path to local project config.
+ * @param {String} projectConfigPath - Path to local project config.
  */
 class TemplateConfig {
-  constructor(customRootConfig, localProjectConfigPath) {
+  constructor(customRootConfig, projectConfigPath) {
     this.userConfig = new UserConfig();
 
     /** @member {module:11ty/eleventy/TemplateConfig~TemplateConfig~override} - tbd. */
@@ -47,7 +47,7 @@ class TemplateConfig {
      * @member {String} - Path to local project config.
      * @default .eleventy.js
      */
-    this.localProjectConfigPath = localProjectConfigPath || ".eleventy.js";
+    this.projectConfigPath = projectConfigPath || ".eleventy.js";
 
     if (customRootConfig) {
       /**
@@ -71,7 +71,7 @@ class TemplateConfig {
    * @returns {String} - The normalised local project config file path.
    */
   getLocalProjectConfigFile() {
-    return TemplatePath.addLeadingDotSlash(this.localProjectConfigPath);
+    return TemplatePath.addLeadingDotSlash(this.projectConfigPath);
   }
 
   get inputDir() {
@@ -89,7 +89,7 @@ class TemplateConfig {
     debugDev("Resetting configuration: TemplateConfig and UserConfig.");
     this.userConfig.reset();
     this.initializeRootConfig();
-    this.config = this.mergeConfig(this.localProjectConfigPath);
+    this.config = this.mergeConfig(this.projectConfigPath);
   }
 
   /**
@@ -109,7 +109,7 @@ class TemplateConfig {
   getConfig() {
     if (!this.hasConfigMerged) {
       debugDev("Merging via getConfig (first time)");
-      this.config = this.mergeConfig(this.localProjectConfigPath);
+      this.config = this.mergeConfig(this.projectConfigPath);
       this.hasConfigMerged = true;
     }
     return this.config;
@@ -121,7 +121,7 @@ class TemplateConfig {
    * @param {String} path - The new config path.
    */
   setProjectConfigPath(path) {
-    this.localProjectConfigPath = path;
+    this.projectConfigPath = path;
 
     if (this.hasConfigMerged) {
       // merge it again
@@ -163,24 +163,19 @@ class TemplateConfig {
   /**
    * Merges different config files together.
    *
-   * @param {String} localProjectConfigPath - Path to local project config.
+   * @param {String} projectConfigPath - Path to project config.
    * @returns {{}} merged - The merged config file.
    */
-  mergeConfig(localProjectConfigPath) {
+  mergeConfig(projectConfigPath) {
     let localConfig = {};
-    let path = TemplatePath.join(
-      TemplatePath.getWorkingDir(),
-      localProjectConfigPath
-    );
+    let path = TemplatePath.absolutePath(projectConfigPath);
 
     debug(`Merging config with ${path}`);
 
     if (fs.existsSync(path)) {
       try {
         // remove from require cache so it will grab a fresh copy
-        if (path in require.cache) {
-          deleteRequireCache(path);
-        }
+        deleteRequireCache(path);
 
         localConfig = require(path);
         // debug( "localConfig require return value: %o", localConfig );
@@ -206,7 +201,7 @@ class TemplateConfig {
           Object.keys(localConfig.filters).length
         ) {
           throw new EleventyConfigError(
-            `The \`filters\` configuration option was renamed in Eleventy 0.3.3 and removed in Eleventy 1.0. Please use the \`addTransform\` configuration method instead. Read more: https://www.11ty.dev/docs/config/#transforms`
+            "The `filters` configuration option was renamed in Eleventy 0.3.3 and removed in Eleventy 1.0. Please use the `addTransform` configuration method instead. Read more: https://www.11ty.dev/docs/config/#transforms"
           );
         }
       } catch (err) {
@@ -223,7 +218,8 @@ class TemplateConfig {
       debug("Eleventy local project config file not found, skipping.");
     }
 
-    let eleventyConfigApiMergingObject = this.userConfig.getMergingConfigObject();
+    let eleventyConfigApiMergingObject =
+      this.userConfig.getMergingConfigObject();
 
     // remove special merge keys from object
     let savedForSpecialMerge = {

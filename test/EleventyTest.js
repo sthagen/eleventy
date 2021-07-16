@@ -44,6 +44,19 @@ test("Eleventy set input/output", async (t) => {
   t.truthy(elev.writer);
 });
 
+test("Eleventy process.ENV", async (t) => {
+  delete process.env.ELEVENTY_ROOT;
+  t.falsy(process.env.ELEVENTY_ROOT);
+
+  let elev = new Eleventy("./test/stubs", "./test/stubs/_site");
+  await elev.init();
+  t.truthy(process.env.ELEVENTY_ROOT);
+
+  // all ELEVENTY_ env variables are also available on eleventy.env
+  let globals = await elev.templateData.getInitialGlobalData();
+  t.truthy(globals.eleventy.env.root);
+});
+
 test("Eleventy file watching", async (t) => {
   let elev = new Eleventy("./test/stubs", "./test/stubs/_site");
   elev.setFormats("njk");
@@ -141,6 +154,7 @@ test("Eleventy set input/output, one file input exitCode", async (t) => {
     "./test/stubs/exitCode/_site"
   );
   elev.setIsVerbose(false);
+  elev.disableLogger();
   await elev.init();
   await elev.write();
 
@@ -163,6 +177,7 @@ test("Eleventy to json", async (t) => {
       {
         url: "/test/",
         inputPath: "./test/stubs--to/test.md",
+        outputPath: "_site/test/index.html",
         content: "<h1>hi</h1>\n",
       },
     ]
@@ -173,6 +188,7 @@ test("Eleventy to json", async (t) => {
       {
         url: "/test2/",
         inputPath: "./test/stubs--to/test2.liquid",
+        outputPath: "_site/test2/index.html",
         content: "hello",
       },
     ]
@@ -223,4 +239,16 @@ test("Two Eleventies, two configs!!! (config used to be a global)", async (t) =>
   let elev2 = new Eleventy();
   t.not(elev1.eleventyConfig, elev2.eleventyConfig);
   t.is(JSON.stringify(elev1.config), JSON.stringify(elev2.config));
+});
+
+test("Config propagates to other instances correctly", async (t) => {
+  let elev = new Eleventy();
+  await elev.init();
+
+  t.is(elev.eleventyServe.config, elev.config);
+
+  t.is(elev.extensionMap.eleventyConfig, elev.eleventyConfig);
+  t.is(elev.eleventyFiles.eleventyConfig, elev.eleventyConfig);
+  t.is(elev.templateData.eleventyConfig, elev.eleventyConfig);
+  t.is(elev.writer.eleventyConfig, elev.eleventyConfig);
 });
